@@ -1,0 +1,198 @@
+---
+title: "p8105_hw5_ls4236"
+author: "Liliang Su"
+date: "2025-10-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(p8105.datasets)
+library(patchwork)
+library(ggridges)
+
+knitr::opts_chunk$set(
+  fig.width = 8,
+  fig.asp = .6,
+  out.width = "90%"
+)
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+```
+
+## Problem 1
+
+Write a function to check if there is at least two people sharing a birthday.
+
+```{r}
+# source("./source/bday_sim.R")
+
+bday_sim = function(n_room){
+  
+  birthdays = sample(1:365, n_room, replace = TRUE)
+  
+  repeated_bday = length(unique(birthdays)) < n_room
+  
+  repeated_bday
+}
+
+```
+
+Iterate the function and Store the results.
+
+```{r}
+bday_sim_results =
+  expand_grid(
+    bdays = 2:50,
+    iter = 1:10000
+  ) |> 
+  mutate(
+    result = map_lgl(bdays, bday_sim)
+  ) |> 
+  group_by(
+    bdays
+  ) |> 
+  summarise(
+    prob_repeat = mean(result)
+  )
+```
+
+Plot the probability as a function of group size.
+
+```{r}
+bday_sim_results |> 
+  ggplot(aes(x = bdays, y = prob_repeat)) +
+  geom_point() +
+  geom_line() +
+  labs(
+    title = "Duplicate Birthday Probablity", 
+    x = "Probablity", 
+    y = "Group size"
+    )
+```
+
+## Problem 2
+
+### Simulation
+
+Fix the sample size `n` and standard deviation `sigma` of distribution.
+
+```{r}
+n = 30 # fixed sample size
+sigma = 5 # true standard deviation
+```
+
+Other variables.
+
+```{r}
+n_sim = 5000 # number of datasets to generate for each mu
+mu_null = 0 # null hypothesis value
+alpha = 0.05 # significance level
+mu_values = c(1, 2, 3, 4, 5, 6) # true mean values awaiting to test
+```
+
+Write the function to conduct t-test
+
+```{r}
+power_sim = function(mu_true, n_subj = 30, sigma_true = 5, mu_null = 0, alpha = 0.05){
+  
+  # generate the data
+  x = rnorm(n = n_subj, mean = mu_true, sd = sigma_true)
+  
+  # perform the one-sample t-test
+  test_output = t.test(x, mu = mu_null, conf.level = alpha)
+  
+  # clean output and calculate results
+  results = broom::tidy(test_output) |>
+    # select the point estimate (mu_hat) and p-value
+    select(mu_hat = estimate, p_value = p.value) |>
+    mutate(
+      # determine if H0 was rejected
+      rejected_H0 = (p_value < alpha)
+    )
+  
+  results
+}
+
+```
+
+Test the function for `mu` = 0.
+
+```{r}
+sim_results_mean0 = 
+  expand_grid(
+    mu_true = 0,
+    iter = 1:n_sim
+  ) |> 
+  mutate(
+    results = map(mu_true, power_sim)
+  ) |> 
+  unnest(results)
+
+sim_results_mean0 |> 
+  head(10) |> 
+  knitr::kable()
+
+```
+
+
+Create a data frame to store simulation results of all conditions.
+
+```{r}
+power_sim_results_df = 
+  expand_grid(
+    mu_true = mu_values,
+    iter = 1:n_sim
+  ) |> 
+  mutate(
+    results = map(mu_true, power_sim)
+  ) |> 
+  unnest(results)
+
+power_sim_results_df |> 
+  head(10) |> 
+  knitr::kable()
+
+```
+
+### Plotting
+
+Calculate the power by averaging across the 5000 simulation runs
+```{r}
+power_df = power_sim_results_df |>
+  group_by(mu_true) |>
+  summarise(
+    power = mean(rejected_H0),
+    .groups = 'drop'
+  )
+```
+
+Plot shows the proportion of times the null was rejected vs. true mean values
+
+```{r}
+power_plot = power_df |>
+  ggplot(aes(x = mu_true, y = power)) +
+  geom_line() +
+  geom_point() +
+  geom_hline(yintercept = 0.05, linetype = "dashed", color = "red") +
+  labs(
+    title = "Association between Power and True Mean at 0.05 Significance level",
+    x = "True Mean (μ)",
+    y = "Power (Proportion of Rejections)",
+    caption = paste0("n=", n, ", σ=", sigma, ", α=", alpha)
+  ) 
+
+power_plot
+```
+
+Association bewteen effect size and power:
+
+- The plot clearly shows a strong positive association between the true effect size ($\mu_{true} - \mu_0$) and the power of the test. In other words, as the true mean increases from 1 to 6, the difference between the null value (0) and the true mean increases. The relatively large standardized effect size ($\frac{\mu_{true} - \mu_0}{\sigma]}$) also makes it easier for the $t$-test to detect the effect, thus dramatically increasing the probability of correctly rejecting the false null hypothesis.
