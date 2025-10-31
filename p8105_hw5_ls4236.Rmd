@@ -356,6 +356,8 @@ results_all_df = homi_summary_df |>
   select(-city_data) |> 
   unnest(results)
 
+results_all_df |> 
+  knitr::kable()
 ```
 
 ### Plotting
@@ -366,9 +368,9 @@ unsolved_proportions_plot = results_all_df |>
     aes(y = fct_reorder(city_state, p_hat), x = p_hat, xmin = conf_low, xmax = conf_high)
          ) +
   # Add the confidence intervals as horizontal error bars
-  geom_errorbarh(height = 0.2, color = "gray50") +
+  geom_errorbarh(height = 0.2, color = "black") +
   # Add the point estimates
-  geom_point(color = "dodgerblue4", size = 1.5) +
+  geom_point(color = "dodgerblue", size = 1.5) +
   # Add a vertical line at the grand mean
   geom_vline(
     xintercept = mean(pull(results_all_df, p_hat)), 
@@ -390,3 +392,8 @@ unsolved_proportions_plot = results_all_df |>
 unsolved_proportions_plot
 ```
 
+- The plot shows the estimated proportion of unsolved homicides across numerous U.S. cities, sorted from the highest to the lowest clearance rates from bottom to the top. 
+
+- The data reveals a wide disparity in homicide clearance, ranging from cities like Tulsa, AL (where the data only includes one solved case, no unsolved case) to Chicago, IL, where the estimated proportion of unsolved cases is highest, exceeding 70%. 
+
+- The confidence intervals demonstrate that while estimates for cities with large volumes of homicides (like Chicago) are precise (narrow bars), the precision varies across the board, and the grand average unsolved proportion (red dashed line) suggests that many cities struggle to solve even half of their homicide cases.
