@@ -57,9 +57,7 @@ bday_sim_results =
   mutate(
     result = map_lgl(bdays, bday_sim)
   ) |> 
-  group_by(
-    bdays
-  ) |> 
+  group_by(bdays) |> 
   summarise(
     prob_repeat = mean(result)
   )
@@ -99,7 +97,7 @@ alpha = 0.05 # significance level
 mu_values = c(1, 2, 3, 4, 5, 6) # true mean values awaiting to test
 ```
 
-Write the function to conduct t-test
+Write the function to conduct t-test for a single sample
 
 ```{r}
 power_sim = function(mu_true, n_subj = 30, sigma_true = 5, mu_null = 0, alpha = 0.05){
@@ -111,7 +109,7 @@ power_sim = function(mu_true, n_subj = 30, sigma_true = 5, mu_null = 0, alpha = 
   test_output = t.test(x, mu = mu_null, conf.level = alpha)
   
   # clean output and calculate results
-  results = broom::tidy(test_output) |>
+  test_output_cleaned = broom::tidy(test_output) |>
     # select the point estimate (mu_hat) and p-value
     select(mu_hat = estimate, p_value = p.value) |>
     mutate(
@@ -119,12 +117,12 @@ power_sim = function(mu_true, n_subj = 30, sigma_true = 5, mu_null = 0, alpha = 
       rejected_H0 = (p_value < alpha)
     )
   
-  results
+  test_output_cleaned
 }
 
 ```
 
-Test the function for `mu` = 0.
+Test the function for true `mu` = 0 iteratively.
 
 ```{r}
 sim_results_mean0 = 
@@ -144,7 +142,7 @@ sim_results_mean0 |>
 ```
 
 
-Create a data frame to store simulation results of all conditions.
+Create a data frame to store simulation results of all other conditions.
 
 ```{r}
 power_sim_results_df = 
@@ -165,27 +163,24 @@ power_sim_results_df |>
 
 ### Plotting
 
-Calculate the power by averaging across the 5000 simulation runs
 ```{r}
+# Calculate the power by averaging across the 5000 simulation runs
 power_df = power_sim_results_df |>
   group_by(mu_true) |>
   summarise(
-    power = mean(rejected_H0),
+    power = mean(rejected_H0), 
     .groups = 'drop'
   )
-```
 
-Plot shows the proportion of times the null was rejected vs. true mean values
-
-```{r}
+# Plot 1: proportion of times the null was rejected vs. true mean values
 power_plot = power_df |>
   ggplot(aes(x = mu_true, y = power)) +
   geom_line() +
   geom_point() +
   geom_hline(yintercept = 0.05, linetype = "dashed", color = "red") +
   labs(
-    title = "Association between Power and True Mean at 0.05 Significance level",
-    x = "True Mean (μ)",
+    title = "Plot 1: Power vs. True Mean at 0.05 Significance level",
+    x = "True Mean",
     y = "Power (Proportion of Rejections)",
     caption = paste0("n=", n, ", σ=", sigma, ", α=", alpha)
   ) 
@@ -195,4 +190,63 @@ power_plot
 
 Association bewteen effect size and power:
 
-- The plot clearly shows a strong positive association between the true effect size ($\mu_{true} - \mu_0$) and the power of the test. In other words, as the true mean increases from 1 to 6, the difference between the null value (0) and the true mean increases. The relatively large standardized effect size ($\frac{\mu_{true} - \mu_0}{\sigma]}$) also makes it easier for the $t$-test to detect the effect, thus dramatically increasing the probability of correctly rejecting the false null hypothesis.
+- The plot clearly shows a strong positive association between the true effect size ($\mu_{true} - \mu_0$) and the power of the test. In other words, as the true mean increases from 1 to 6, the difference between the null value ($\mu_0 = 0$) and the true mean increases. 
+
+- The relatively larger standardized effect size ($\frac{\mu_{true} - \mu_0}{\sigma}$) also makes it easier for the $t$-test to detect the effect, thus increasing the probability of correctly rejecting the false null hypothesis.
+
+
+```{r}
+# Calculate mean estimates under two different conditions
+mean_estimates_df = power_sim_results_df |>
+  group_by(mu_true) |>
+  summarise(
+    # mean estimate across all samples
+    mu_hat_all = mean(mu_hat),
+    # mean estimate only across samples where H0 was rejected
+    mu_hat_rejected = mean(mu_hat[rejected_H0]),
+    .groups = 'drop'
+  ) |>
+  # Reshape data for plotting
+  pivot_longer(
+    -mu_true, 
+    names_to = "group", 
+    values_to = "avg_estimate"
+  ) |>
+  mutate(
+    group = factor(group, 
+                   levels = c("mu_hat_all", "mu_hat_rejected"),
+                   labels = c("Average Estimate (All Samples)", 
+                              "Average Estimate (Rejected H0 only)")
+    )
+  )
+
+# Plot 2: average estimate vs. true mean (two overlaid plots)
+estimate_plot = mean_estimates_df |>
+  ggplot(aes(x = mu_true, y = avg_estimate, color = group, group = group)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 3) +
+  labs(
+    title = "Plot 2: Average Estimate vs. True Mean",
+    x = "True Mean",
+    y = "Average Estimate of Mean",
+    color = "Sample Group"
+  )
+
+estimate_plot
+```
+
+Discussion on Bias by the overlaid plot:
+
+Is the average estimate of $\hat{\mu}$ across rejected tests approximately equal to the true mean $\mu_{true}$?
+
+- No. For estimates that Rejected H0, the average estimate is significantly greater than the true mean $\mu_{true}$, especially for smaller effect sizes ($\mu=1, 2, 3$), which is referred to as "selection bias", though it gradually overlaps with average estimate across all samples (close to $\mu_{true}$) as the effect size increases.
+
+- For estimates of ALL samples, due to the Central Limit Theorem, when sample size is large enough, the average estimate across all 5000 simulated samples is, as expected, approximately equal to the true mean.
+
+
+Why the Rejected Samples are Biased?
+
+- When the true effect size ($\mu_{true}$) is small, the test has low power. Hence for the null hypothesis to be rejected under low power, the random sample must have produced an extremely large estimate ($\hat{\mu}$) that is much further from the null ($\mu=0$) than the true mean ($\mu_{true}$).
+
+- As the true effect size and power increase, the bias decreases because in most samples, the null hypothesis are rejected anyway, and selection is less restrictive.
+
