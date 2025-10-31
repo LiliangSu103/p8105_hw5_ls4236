@@ -100,7 +100,7 @@ mu_values = c(1, 2, 3, 4, 5, 6) # true mean values awaiting to test
 Write the function to conduct t-test for a single sample
 
 ```{r}
-power_sim = function(mu_true, n_subj = 30, sigma_true = 5, mu_null = 0, alpha = 0.05){
+t_test_sim = function(mu_true, n_subj = 30, sigma_true = 5, mu_null = 0, alpha = 0.05){
   
   # generate the data
   x = rnorm(n = n_subj, mean = mu_true, sd = sigma_true)
@@ -131,7 +131,7 @@ sim_results_mean0 =
     iter = 1:n_sim
   ) |> 
   mutate(
-    results = map(mu_true, power_sim)
+    results = map(mu_true, t_test_sim)
   ) |> 
   unnest(results)
 
@@ -151,7 +151,7 @@ power_sim_results_df =
     iter = 1:n_sim
   ) |> 
   mutate(
-    results = map(mu_true, power_sim)
+    results = map(mu_true, t_test_sim)
   ) |> 
   unnest(results)
 
@@ -249,4 +249,147 @@ Why the Rejected Samples are Biased?
 - When the true effect size ($\mu_{true}$) is small, the test has low power. Hence for the null hypothesis to be rejected under low power, the random sample must have produced an extremely large estimate ($\hat{\mu}$) that is much further from the null ($\mu=0$) than the true mean ($\mu_{true}$).
 
 - As the true effect size and power increase, the bias decreases because in most samples, the null hypothesis are rejected anyway, and selection is less restrictive.
+
+## Problem 3
+
+### Import and describe raw data
+
+```{r}
+homi_df = 
+  read_csv(file = "./data/homicide-data.csv", na = c("NA",".","")) |> 
+  janitor::clean_names()
+```
+
+This dataset contains `r nrow(homi_df)` observations and `r ncol(homi_df)` variables detailing homicides across various U.S. cities.
+
+Here are some key variables:
+
+- `uid` (`character`): Unquie identifier for each homicide case.
+
+- `reported_date` (`numeric`): Variable that stores the exact time the homicide was reported.
+
+- Victim Demographics:
+  - `victim_last`, `victim_first` (`character`): Victim's name.
+  - `victim_race` (`character`), `victim_age` (`character`), `victim_sex` (`character`) : Victims' detail information.
+
+- Location:
+  - `city` (`character`), `state` (`character`), `lat` (`numeric`), `lon` (`numeric`): Variables specify the location of the homicide.
+
+- Case Status:
+  - `disposition` (`character`): Variable indicates the final status of the case.
+
+### Tidy up data
+
+```{r}
+homi_summary_df = homi_df |> 
+  # create the new city_state variable
+  mutate(
+    city_state = str_c(city, ", ", state)
+  ) |> 
+  # summarize to get total and unsolved homicides
+  group_by(city_state) |> 
+  summarise(
+    total_homicides = n(),
+    unsolved_homicides = sum(
+      disposition %in% c("Closed without arrest", "Open/No arrest")
+    ),
+    .groups = 'drop'
+  )
+```
+
+
+### Test on Baltimore, MD
+
+```{r}
+baltimore_df = homi_summary_df |> 
+  filter(city_state == "Baltimore, MD")
+
+x = pull(baltimore_df, unsolved_homicides)
+n = pull(baltimore_df, total_homicides)
+
+# save the test output as an object and tidy up
+baltimore_prop_test = prop.test(x = x, n = n)
+
+output_cleaned = broom::tidy(baltimore_prop_test)
+
+# pull the estimated proportion and confidence intervals
+baltimore_results = output_cleaned |> 
+  select(
+    p_hat = estimate, 
+    conf_low = conf.low, 
+    conf_high = conf.high
+  )
+
+baltimore_results |> 
+  knitr::kable()
+```
+
+
+### Write proportion test function
+
+```{r}
+
+# Function
+prop_test = function(dataset) {
+  
+  n_success = pull(dataset, unsolved_homicides)
+  n_total = pull(dataset, total_homicides)
+  
+  test_output = prop.test(x = n_success, n = n_total)
+
+  test_output_cleaned = broom::tidy(test_output) |> 
+  select(
+    p_hat = estimate, 
+    conf_low = conf.low, 
+    conf_high = conf.high
+    )
+  
+  test_output_cleaned
+  
+}
+
+# Tidy Pipeline
+results_all_df = homi_summary_df |> 
+  group_by(city_state) |> 
+  # Nest into a new list-column 'city_data'
+  nest(city_data = c(total_homicides, unsolved_homicides)) |> 
+  mutate(
+    results = map(city_data, prop_test)
+  ) |> 
+  select(-city_data) |> 
+  unnest(results)
+
+```
+
+### Plotting
+
+```{r}
+unsolved_proportions_plot = results_all_df |>
+  ggplot(
+    aes(y = fct_reorder(city_state, p_hat), x = p_hat, xmin = conf_low, xmax = conf_high)
+         ) +
+  # Add the confidence intervals as horizontal error bars
+  geom_errorbarh(height = 0.2, color = "gray50") +
+  # Add the point estimates
+  geom_point(color = "dodgerblue4", size = 1.5) +
+  # Add a vertical line at the grand mean
+  geom_vline(
+    xintercept = mean(pull(results_all_df, p_hat)), 
+    linetype = "dashed", 
+    color = "red"
+  ) +
+  labs(
+    title = "Estimated Unsolved Homicide Proportion by City",
+    subtitle = "95% Confidence Intervals",
+    x = "Proportion of Unsolved Homicides",
+    y = "City, State"
+    ) +
+  scale_x_continuous(labels = scales::percent) +
+  theme(
+    axis.text.y = element_text(size = 7),
+    panel.grid.major.y = element_line(linetype = "dotted", color = "gray90")
+  )
+
+unsolved_proportions_plot
+```
 
